@@ -192,6 +192,29 @@
             padding: 30px;
             margin: 30px 0;
             border-left: 4px solid var(--accent-color);
+            position: relative;
+        }
+        /* Category badge styles */
+        .category-badge {
+            display: inline-block;
+            background: #17a2b8;
+            color: #fff;
+            font-size: 0.95rem;
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 16px;
+            margin-bottom: 10px;
+            margin-right: 10px;
+            letter-spacing: 0.5px;
+            box-shadow: 0 1px 3px rgba(23,162,184,0.08);
+            vertical-align: middle;
+        }
+        @media (max-width: 600px) {
+            .category-badge {
+                font-size: 0.85rem;
+                padding: 3px 8px;
+                margin-bottom: 8px;
+            }
         }
 
         .question-text {
@@ -216,6 +239,9 @@
             cursor: pointer;
             transition: all 0.3s ease;
             position: relative;
+            outline: none;
+            /* Always allow keyboard focus */
+            tabindex: 0;
         }
 
         .option-item:hover {
@@ -679,10 +705,12 @@
             function updateConversation(data) {
                 if (data.question) {
                     // Show question
-                    $('#question-text').text(data.question);
+                    let category = data.category || (typeof $('#category-dropdown').val === 'function' ? $('#category-dropdown').val() : '');
+                    if (!category && window.quiz_state && window.quiz_state.category) category = window.quiz_state.category;
+                    let badgeHtml = category ? `<span class="category-badge">${category}</span>` : '';
+                    $('#question-text').html(badgeHtml + data.question);
                     $('#question-container').removeClass('hidden').addClass('fade-in');
                     setState('question');
-                    
                     // Render options
                     $('#options-container').empty();
                     if (data.choices && data.choices.length === 4) {
@@ -779,9 +807,11 @@
                         });
                         choicesHtml += '</div>';
                     }
+                    // Add category badge if available
+                    let badgeHtml = item.category ? `<span class=\"category-badge\">${item.category}</span>` : '';
                     var historyHtml = `
                         <div class="history-item">
-                            <div class="question-text">${item.question}</div>
+                            <div class="question-text">${badgeHtml}${item.question}</div>
                             ${choicesHtml}
                             <div class="mt-2">
                                 <strong>Your Answer:</strong> 
@@ -799,25 +829,88 @@
             }
 
             // Option selection (mouse and keyboard accessible)
+            // Option selection (mouse and keyboard accessible)
             $(document).on('click', '.option-item', function() {
                 $('.option-item').removeClass('selected');
                 $(this).addClass('selected');
                 $(this).find('input[type="radio"]').prop('checked', true).focus();
             });
-            // Keyboard navigation for options
+            // Keyboard navigation for options (arrow keys, Enter, Space)
             $(document).on('keydown', '.option-item', function(e) {
-                if (e.key === ' ' || e.key === 'Enter') {
+                const $options = $('.option-item');
+                let idx = $options.index(this);
+                if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    let next = (idx + 1) % $options.length;
+                    $options.eq(next).focus();
+                } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    let prev = (idx - 1 + $options.length) % $options.length;
+                    $options.eq(prev).focus();
+                } else if (e.key === ' ' || e.key === 'Enter') {
                     e.preventDefault();
                     $(this).trigger('click');
+                    // If submit button is visible and enabled, submit
+                    const $submit = $('#submit-answer-btn');
+                    if ($submit.is(':visible') && !$submit.prop('disabled')) {
+                        $submit.focus();
+                        $submit.trigger('click');
+                    }
+                } else if (["a","b","c","d"].includes(e.key.toLowerCase())) {
+                    // Keyboard shortcut for A/B/C/D
+                    e.preventDefault();
+                    const key = e.key.toUpperCase();
+                    const $target = $options.filter(function() {
+                        return $(this).data('value') === key;
+                    });
+                    if ($target.length) {
+                        $target.focus().trigger('click');
+                    }
                 }
             });
-            // Make option-item focusable
+
+            // Allow global A/B/C/D selection when options are visible
+            $(document).on('keydown', function(e) {
+                if (!$('#options-container').is(':visible')) return;
+                // Global A/B/C/D selection
+                if (["a","b","c","d"].includes(e.key.toLowerCase())) {
+                    const key = e.key.toUpperCase();
+                    const $options = $('.option-item');
+                    const $target = $options.filter(function() {
+                        return $(this).data('value') === key;
+                    });
+                    if ($target.length) {
+                        e.preventDefault();
+                        $target.focus().trigger('click');
+                        return;
+                    }
+                }
+                // Global Enter submits answer if not focused on option-item
+                if (e.key === 'Enter' && !$(':focus').hasClass('option-item')) {
+                    const $submit = $('#submit-answer-btn');
+                    if ($submit.is(':visible') && !$submit.prop('disabled')) {
+                        const selected = $('input[name="answer"]:checked').val();
+                        if (selected) {
+                            e.preventDefault();
+                            $submit.focus();
+                            $submit.trigger('click');
+                        }
+                    }
+                }
+            });
+            // Always set tabindex=0 for option-item for accessibility
             $(document).on('mouseenter', '.option-item', function() {
                 $(this).attr('tabindex', 0);
             });
             $(document).on('mouseleave', '.option-item', function() {
-                $(this).removeAttr('tabindex');
+                $(this).attr('tabindex', 0);
             });
+            // When rendering options, ensure tabindex=0
+            function setOptionTabIndexes() {
+                $('.option-item').attr('tabindex', 0);
+            }
+            // Call after rendering options
+            $(document).on('DOMNodeInserted', '#options-container', setOptionTabIndexes);
             // Show theme toggle only on Home page
             function showThemeToggleOnHome() {
                 if ($('#home-page').is(':visible')) {
@@ -1077,7 +1170,9 @@
                     return;
                 }
                 const item = flashcardHistory[index];
-                $('#flashcard-question').text(item.question);
+                // Add category badge if available
+                let badgeHtml = item.category ? `<span class="category-badge">${item.category}</span> ` : '';
+                $('#flashcard-question').html(badgeHtml + item.question);
                 let choicesHtml = '';
                 if (item.choices && item.choices.length === 4) {
                     item.choices.forEach(function(choice) {
@@ -1085,33 +1180,116 @@
                         if (match) {
                             var letter = match[1];
                             var text = match[2];
-                            choicesHtml += `<div class="option-item"><div class="option-letter">${letter}</div> <span>${text}</span></div>`;
+                            // Add data-value for keyboard shortcut, tabindex for accessibility
+                            choicesHtml += `<div class="option-item" tabindex="0" data-value="${letter}"><div class="option-letter">${letter}</div> <span>${text}</span></div>`;
                         }
                     });
                 }
                 $('#flashcard-choices').html(choicesHtml);
+                // Set tabindex for accessibility
+                $('#flashcard-choices .option-item').attr('tabindex', 0);
+            // Keyboard navigation for flashcard options (A/B/C/D/Enter)
+            $(document).on('keydown', '#flashcard-choices .option-item', function(e) {
+                const $options = $('#flashcard-choices .option-item');
+                let idx = $options.index(this);
+                if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    let next = (idx + 1) % $options.length;
+                    $options.eq(next).focus();
+                } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    let prev = (idx - 1 + $options.length) % $options.length;
+                    $options.eq(prev).focus();
+                } else if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    $(this).addClass('selected');
+                    $options.not(this).removeClass('selected');
+                } else if (["a","b","c","d"].includes(e.key.toLowerCase())) {
+                    e.preventDefault();
+                    const key = e.key.toUpperCase();
+                    const $target = $options.filter(function() {
+                        return $(this).data('value') === key;
+                    });
+                    if ($target.length) {
+                        $target.focus().addClass('selected');
+                        $options.not($target).removeClass('selected');
+                    }
+                }
+            });
+
+            // Global A/B/C/D/Enter for flashcard selection
+            $(document).on('keydown', function(e) {
+                if (!$('#flashcards-section').is(':visible')) return;
+                const $options = $('#flashcard-choices .option-item');
+                if (!$options.length) return;
+                if (["a","b","c","d"].includes(e.key.toLowerCase())) {
+                    const key = e.key.toUpperCase();
+                    const $target = $options.filter(function() {
+                        return $(this).data('value') === key;
+                    });
+                    if ($target.length) {
+                        e.preventDefault();
+                        $target.focus().addClass('selected');
+                        $options.not($target).removeClass('selected');
+                    }
+                }
+                if (e.key === 'Enter') {
+                    // If an option is focused or selected, show answer
+                    const $focused = $options.filter(':focus');
+                    const $selected = $options.filter('.selected');
+                    if ($focused.length || $selected.length) {
+                        e.preventDefault();
+                        $('#show-flashcard-answer-btn').trigger('click');
+                    }
+                }
+            });
                 
-                // Create better formatted answer display
-                const isCorrect = item.user_answer === item.correct_answer;
-                const answerClass = isCorrect ? 'flashcard-correct' : 'flashcard-incorrect';
-                const answerHtml = `
-                    <div class="flashcard-answer-content ${answerClass}">
-                        <div class="answer-row">
-                            <span class="answer-label">Your Original Answer:</span>
-                            <span class="answer-value ${isCorrect ? 'correct' : 'incorrect'}">${item.user_answer}</span>
-                        </div>
-                        <div class="answer-row">
-                            <span class="answer-label">Correct Answer:</span>
-                            <span class="answer-value correct">${item.correct_answer}</span>
-                        </div>
-                        <div class="feedback-text">${item.feedback}</div>
-                    </div>
-                `;
-                $('#flashcard-answer').hide().html(answerHtml);
+                // Track selected answer for this flashcard (reset on show)
+                let selectedAnswer = null;
+                $('#flashcard-choices .option-item').removeClass('selected');
+                // Handler for selecting an option
+                $('#flashcard-choices').off('click').on('click', '.option-item', function() {
+                    $('#flashcard-choices .option-item').removeClass('selected');
+                    $(this).addClass('selected');
+                    selectedAnswer = $(this).data('value');
+                });
+                // Handler for keyboard selection (A/B/C/D)
+                $('#flashcard-choices').off('keydown').on('keydown', '.option-item', function(e) {
+                    if (["a","b","c","d"].includes(e.key.toLowerCase())) {
+                        const key = e.key.toUpperCase();
+                        const $target = $('#flashcard-choices .option-item').filter(function() {
+                            return $(this).data('value') === key;
+                        });
+                        if ($target.length) {
+                            $target.focus().addClass('selected');
+                            $('#flashcard-choices .option-item').not($target).removeClass('selected');
+                            selectedAnswer = key;
+                        }
+                    }
+                });
+                // Show answer button
+                $('#show-flashcard-answer-btn').off('click').on('click', function() {
+                    // Use selected answer for display, fallback to none
+                    const answer = selectedAnswer;
+                    const isCorrect = answer === item.correct_answer;
+                    const answerClass = isCorrect ? 'flashcard-correct' : 'flashcard-incorrect';
+                    let answerHtml = `<div class="flashcard-answer-content ${answerClass}">`;
+                    if (answer) {
+                        answerHtml += `<div class="answer-row"><span class="answer-label">Your Selected Answer:</span> <span class="answer-value ${isCorrect ? 'correct' : 'incorrect'}">${answer}</span></div>`;
+                    } else {
+                        answerHtml += `<div class="answer-row"><span class="answer-label">Your Selected Answer:</span> <span class="answer-value">(None)</span></div>`;
+                    }
+                    answerHtml += `<div class="answer-row"><span class="answer-label">Correct Answer:</span> <span class="answer-value correct">${item.correct_answer}</span></div>`;
+                    answerHtml += `<div class="feedback-text">${item.feedback}</div></div>`;
+                    $('#flashcard-answer').show().html(answerHtml);
+                    $(this).hide();
+                    // Color code options
+                    colorCodeOptions(answer, item.correct_answer);
+                });
+                $('#flashcard-answer').hide().html("");
                 $('#show-flashcard-answer-btn').show();
                 $('#flashcard-progress').text(`Question ${index + 1} of ${flashcardHistory.length}`);
-                
-                // Reset color coding for new flashcard - no colors until "Show Answer" is clicked
+                // Reset color coding for new flashcard
                 $('.option-item').removeClass('correct incorrect selected');
             }
 

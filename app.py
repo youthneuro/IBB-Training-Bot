@@ -771,7 +771,8 @@ def update():
         'choices': quiz_state.get('choices'),
         'user_answer': user_answer,
         'correct_answer': quiz_state.get('correct_answer'),
-        'feedback': feedback
+        'feedback': feedback,
+        'category': category
     })
     quiz_state['history'] = history
     
@@ -799,13 +800,14 @@ def new_question():
         'explanation': '',  # We'll generate this only when user answers incorrectly
         'user_answer': None,
         'feedback': '',
-        'history': existing_history
+        'history': existing_history,
+        'category': category
     }
 
     # Save to persistent storage
     save_user_session_data(quiz_state)
 
-    return jsonify({'question': question, 'choices': choices})
+    return jsonify({'question': question, 'choices': choices, 'category': category})
 
 @app.route("/review_history", methods=['GET'])
 def review_history():
